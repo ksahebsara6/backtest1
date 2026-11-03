@@ -73,22 +73,7 @@ def load_data(file):
         raise ValueError("Missing required CSV columns: " + ", ".join(missing))
     df = raw[[tcol, ocol, hcol, lcol, ccol, vcol]].copy()
     df.columns = ["time", "open", "high", "low", "close", "volume"]
-    # TradingView exports may encode timestamps as Unix seconds (or ms/us/ns).
-    # Plain pd.to_datetime(numeric) assumes nanoseconds and can show dates in 1970.
-    numeric_time = pd.to_numeric(df["time"], errors="coerce")
-    if numeric_time.notna().mean() > 0.95:
-        sample = numeric_time.dropna().abs().median()
-        if sample < 1e11:
-            unit = "s"
-        elif sample < 1e14:
-            unit = "ms"
-        elif sample < 1e17:
-            unit = "us"
-        else:
-            unit = "ns"
-        df["time"] = pd.to_datetime(numeric_time, unit=unit, errors="coerce", utc=True)
-    else:
-        df["time"] = pd.to_datetime(df["time"], errors="coerce", utc=True)
+    df["time"] = pd.to_datetime(df["time"], errors="coerce", utc=True)
     for c in ["open", "high", "low", "close", "volume"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df.dropna(subset=["time", "open", "high", "low", "close"]).copy()
@@ -212,9 +197,11 @@ def run_backtest(d, start, end, stop_mode, atr_mult, rr, qty, point_value,
     d["long_signal"] = d["bull_reject"] & (d["close"] < d["val"])
     d["short_signal"] = d["bear_reject"] & (d["close"] > d["vah"])
 
-    start_ts = pd.Timestamp(start)
-    end_ts = pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
-    in_range = (d["time"] >= start_ts) & (d["time"] <= end_ts)
+    # CSV timestamps are normalized to UTC in load_data(). Make date-picker
+    # boundaries UTC-aware too, avoiding aware-vs-naive comparison errors.
+    start_ts = pd.Timestamp(start).tz_localize("UTC")
+    end_ts = (pd.Timestamp(end) + pd.Timedelta(days=1)).tz_localize("UTC")
+    in_range = (d["time"] >= start_ts) & (d["time"] < end_ts)
     slip = slippage_ticks * tick_size
 
     trades = []
