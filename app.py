@@ -73,7 +73,22 @@ def load_data(file):
         raise ValueError("Missing required CSV columns: " + ", ".join(missing))
     df = raw[[tcol, ocol, hcol, lcol, ccol, vcol]].copy()
     df.columns = ["time", "open", "high", "low", "close", "volume"]
-    df["time"] = pd.to_datetime(df["time"], errors="coerce")
+    # TradingView exports may encode timestamps as Unix seconds (or ms/us/ns).
+    # Plain pd.to_datetime(numeric) assumes nanoseconds and can show dates in 1970.
+    numeric_time = pd.to_numeric(df["time"], errors="coerce")
+    if numeric_time.notna().mean() > 0.95:
+        sample = numeric_time.dropna().abs().median()
+        if sample < 1e11:
+            unit = "s"
+        elif sample < 1e14:
+            unit = "ms"
+        elif sample < 1e17:
+            unit = "us"
+        else:
+            unit = "ns"
+        df["time"] = pd.to_datetime(numeric_time, unit=unit, errors="coerce", utc=True)
+    else:
+        df["time"] = pd.to_datetime(df["time"], errors="coerce", utc=True)
     for c in ["open", "high", "low", "close", "volume"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df.dropna(subset=["time", "open", "high", "low", "close"]).copy()
